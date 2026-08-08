@@ -2,6 +2,8 @@
 
 英文说明：[README.md](README.md)
 
+许可证：[GPL-2.0-only](LICENSE)
+
 本项目是面向 MTK 平台的屏幕超频 LKM 参考实现，以 PMB110 作为示例设备。
 示例模块在系统运行时向 Android 显示栈增加 170Hz 和 185Hz 档位，覆盖官方
 提供的两种分辨率。启用后，所有档位使用统一的 1496Mbps MIPI DSI 链路；官方档位通过补偿

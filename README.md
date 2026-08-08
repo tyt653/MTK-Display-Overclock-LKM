@@ -2,6 +2,8 @@
 
 中文说明：[README_CN.md](README_CN.md)
 
+License: [GPL-2.0-only](LICENSE)
+
 This project is a source-only reference implementation for MTK display
 overclocking through a loadable kernel module. PMB110 is used as the concrete
 reference device: it adds 170Hz and 185Hz modes to the stock panel at both

@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
 set -eu
 
 # Build the PMB110 full-link-rate source against the exact target kernel ABI.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
 #define OPLUS_FEATURE_DISPLAY 1
 #define OPLUS_FEATURE_DISPLAY_ADFR 1
 #define OPLUS_FEATURE_DISPLAY_HPWM 1
