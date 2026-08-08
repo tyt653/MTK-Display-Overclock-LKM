@@ -10,7 +10,7 @@ DDIC 命令路径并使用新的主机时序。
 
 ## 适用基线
 
-这份实现严格绑定 PMB110 的软件、面板和内核 ABI：
+这份实现针对 PMB110 的软件、面板和内核 ABI：
 
 - 产品：PMB110
 - SoC：MediaTek MT6993
@@ -46,15 +46,6 @@ DDIC 命令路径并使用新的主机时序。
 Android 设置界面显示的数字只是模式枚举结果，不能代替实际刷新率测量。
 必须结合 panel/DSI 计数器、示波器或设备端可靠的硬件刷新率接口验证。
 
-## 设备绑定
-
-C 源码不保存真实设备 ID。编译时必须通过 `PMB110_SERIAL_FNV64` 传入授权
-设备 16 字符 ID 的 FNV-1a 64 位哈希；模块初始化阶段从设备的 oplusboot
-serial 接口读取 ID，哈希不一致就返回 `-ENODEV`，并且不会安装显示 probe。
-
-真实 ID 和哈希必须保存在仓库外，不要放进 README、shell 历史、CI 日志、
-issue 或提交记录。公开脚本在没有该环境变量时会直接退出。
-
 ## 编译方法
 
 入口只有 `scripts/build_module.sh`。需要以下外部输入：
@@ -66,7 +57,6 @@ issue 或提交记录。公开脚本在没有该环境变量时会直接退出�
 | `PMB110_DISPLAY_ROOT` | 匹配模块源码中的 `kernel/kernel_device_modules-6.12` 目录 |
 | `PMB110_CLANG` | Android Clang r536225 的 `clang` |
 | `PMB110_LD_LLD` | 同一套 r536225 工具链的 `ld.lld` |
-| `PMB110_SERIAL_FNV64` | 私有的设备绑定哈希 |
 
 示例路径仅作格式说明：
 
@@ -76,12 +66,10 @@ export PMB110_KERNEL_SOURCE=/path/to/android_kernel_oneplus_mt6993
 export PMB110_DISPLAY_ROOT=/path/to/android_kernel_modules_and_devicetree_oneplus_mt6993/kernel/kernel_device_modules-6.12
 export PMB110_CLANG=/path/to/clang-r536225/bin/clang
 export PMB110_LD_LLD=/path/to/clang-r536225/bin/ld.lld
-export PMB110_SERIAL_FNV64=0x0000000000000000ULL
 sh scripts/build_module.sh
 ```
 
-示例中的 `0x0000000000000000ULL` 不是可用的授权值。成功产物为
-`out/PMB110_185_Mode.ko`，内核内部模块名仍是 `pmb110_170_mode`，这是
+成功产物为 `out/PMB110_185_Mode.ko`，内核内部模块名仍是 `pmb110_170_mode`，这是
 为了保持已经验证的 sysfs 参数路径和运行时控制接口不变。
 
 ## ABI、CRC 和 KCFI 注意事项
@@ -153,7 +141,7 @@ DSC 面板不能直接套用未压缩面板的像素时钟公式，必须按 dri
    稳定档位的完整时序；确认信息正确后再注册 kprobe。
 4. 只新增一个测试模式，复用已验证的 DDIC 命令；确认主机确实输出目标刷新率
    后，再引入 PHY/PLL 和动态 VFP。
-5. 把设备 ID 校验、面板校验、模式表校验和失败回滚保留在显示写操作之前。
+5. 把面板校验、模式表校验和失败回滚保留在显示写操作之前。
 6. 使用该设备自己的 clang、vermagic、KCFI、CRC、`Module.symvers` 和恢复
    方案进行验证。不能因为同属 MTK 或同为 VDO 就共用 `.ko`。
 

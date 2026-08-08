@@ -10,7 +10,6 @@ kernel_source=${PMB110_KERNEL_SOURCE:-}
 display_root=${PMB110_DISPLAY_ROOT:-}
 clang=${PMB110_CLANG:-}
 linker=${PMB110_LD_LLD:-}
-serial_fnv64=${PMB110_SERIAL_FNV64:-}
 module_name=${PMB110_MODULE_NAME:-pmb110_170_mode}
 output_dir=${PMB110_OUTPUT_DIR:-$project_root/out}
 source_file=$project_root/src/PMB110_185_Mode.c
@@ -25,7 +24,6 @@ fail() {
 [ -n "$display_root" ] || fail "PMB110_DISPLAY_ROOT is required"
 [ -n "$clang" ] || fail "PMB110_CLANG is required"
 [ -n "$linker" ] || fail "PMB110_LD_LLD is required"
-[ -n "$serial_fnv64" ] || fail "PMB110_SERIAL_FNV64 is required; keep the device value private"
 [ -f "$source_file" ] || fail "missing source: $source_file"
 [ -f "$headers_dir/include/linux/compiler-version.h" ] || fail "incomplete kernel headers: $headers_dir"
 [ -f "$headers_dir/include/linux/kconfig.h" ] || fail "incomplete kernel headers: $headers_dir"
@@ -34,14 +32,6 @@ fail() {
 	fail "missing MTK DSI ABI header below: $display_root"
 [ -x "$clang" ] || fail "clang is not executable: $clang"
 [ -x "$linker" ] || fail "ld.lld is not executable: $linker"
-
-serial_hex=${serial_fnv64#0x}
-serial_hex=${serial_hex%ULL}
-[ "${#serial_hex}" -eq 16 ] || fail "PMB110_SERIAL_FNV64 must contain 16 hexadecimal digits"
-case "$serial_hex" in
-	*[!0-9a-fA-F]*) fail "PMB110_SERIAL_FNV64 is not hexadecimal" ;;
-esac
-serial_define="-DPMB110_SERIAL_FNV64=0x${serial_hex}ULL"
 
 compiler_version=$("$clang" --version | sed -n '1p')
 case "$compiler_version" in
@@ -82,7 +72,6 @@ mkdir -p "$output_dir"
 	-DCONFIG_MTK_CMDQ_MBOX_EXT=1 \
 	-"DKBUILD_MODNAME=\"$module_name\"" \
 	-"DKBUILD_BASENAME=\"$module_name\"" \
-	$serial_define \
 	-include "$headers_dir/include/linux/compiler-version.h" \
 	-include "$headers_dir/include/linux/kconfig.h" \
 	-I"$headers_dir/arch/arm64/include" \

@@ -48,12 +48,6 @@ struct mtk_drm_crtc;
 #define PMB110_BASE_DATA_RATE 1374
 #define PMB110_FHD_SDC165 6
 #define PMB110_PANEL_FUNCS_SCAN_BYTES 2048
-#define PMB110_SERIAL_LEN 16
-#ifndef PMB110_SERIAL_FNV64
-#error "PMB110_SERIAL_FNV64 must be supplied by the device build"
-#endif
-#define PMB110_FNV64_OFFSET 0xcbf29ce484222325ULL
-#define PMB110_FNV64_PRIME 0x100000001b3ULL
 
 extern unsigned long (*_kallsyms_lookup_name)(const char *name);
 
@@ -109,7 +103,6 @@ struct pmb110_enum_probe_data {
 
 typedef int (*pmb110_vdo_update_fn_t)(struct drm_connector *connector,
 	unsigned int cur_mode, unsigned int dst_mode);
-typedef void (*pmb110_get_serial_id_fn_t)(char *serialno);
 
 static int pmb110_mode_switch_update_for_vdo(
 	struct drm_connector *connector, unsigned int cur_mode,
@@ -502,52 +495,6 @@ static int validate_kcfi(const void *live, const void *local)
 	return live_type_id == local_type_id ? 0 : -EINVAL;
 }
 
-static noinline __used void pmb110_get_serial_id_reference(char *serialno)
-{
-	(void)serialno;
-}
-
-static u64 pmb110_serial_hash(const char *serialno)
-{
-	u64 hash = PMB110_FNV64_OFFSET;
-	int i;
-
-	for (i = 0; i < PMB110_SERIAL_LEN; i++) {
-		if (!serialno[i])
-			return 0;
-		hash ^= (u8)serialno[i];
-		hash *= PMB110_FNV64_PRIME;
-	}
-
-	return serialno[PMB110_SERIAL_LEN] == '\0' ? hash : 0;
-}
-
-static int validate_device_identity(void)
-{
-	pmb110_get_serial_id_fn_t get_serial_id;
-	unsigned long serial_symbol;
-	char serialno[PMB110_SERIAL_LEN + 1] = { 0 };
-	int ret;
-
-	serial_symbol = _kallsyms_lookup_name(
-		"oplus_bsp_boot_projectinfo:get_serialID");
-	if (!serial_symbol)
-		return -ENOENT;
-
-	get_serial_id = (pmb110_get_serial_id_fn_t)serial_symbol;
-	ret = validate_kcfi(get_serial_id, pmb110_get_serial_id_reference);
-	if (ret)
-		return ret;
-
-	get_serial_id(serialno);
-	if (pmb110_serial_hash(serialno) != PMB110_SERIAL_FNV64) {
-		pr_err("pmb110_170_mode: device identity rejected\n");
-		return -ENODEV;
-	}
-
-	return 0;
-}
-
 static pmb110_vdo_update_fn_t *find_vdo_update_slot(
 	struct mtk_panel_funcs *funcs)
 {
@@ -851,7 +798,7 @@ static int install_modes(void)
 		"installed=1 captured=1 modes=16 "
 		"hz170=12/13 vfp170=326/299 hz185=14/15 vfp185=70/80 "
 		"rate=1496 mipi=sticky-dyn-vfp "
-		"enum=FHD_SDC165 device_bound=1 dtbo=untouched");
+		"enum=FHD_SDC165 dtbo=untouched");
 	pr_info("pmb110_170_mode: %s\n", state.status);
 	return 0;
 
@@ -974,7 +921,7 @@ unlock:
 	notify_mode_change();
 	scnprintf(state.status, sizeof(state.status),
 		"installed=0 captured=1 modes=12 last_error=%d "
-		"device_bound=1 dtbo=untouched",
+		"dtbo=untouched",
 		ret);
 	pr_info("pmb110_170_mode: removed runtime modes ret=%d\n", ret);
 
@@ -1008,7 +955,7 @@ static int fake_mode_set(const char *value, const struct kernel_param *kp)
 	if (ret)
 		scnprintf(state.status, sizeof(state.status),
 			"installed=%u captured=%u last_error=%d "
-			"device_bound=1 dtbo=untouched",
+				"dtbo=untouched",
 			state.installed, state.comp != NULL, ret);
 	mutex_unlock(&control_lock);
 	return ret;
@@ -1097,7 +1044,7 @@ static int porch_pre_handler(struct kprobe *probe, struct pt_regs *regs)
 		state.captures++;
 		scnprintf(state.status, sizeof(state.status),
 			"installed=0 captured=1 modes=12 ready=1 "
-			"device_bound=1 dtbo=untouched");
+			"dtbo=untouched");
 		pr_info("pmb110_170_mode: captured primary DSI component\n");
 	}
 
@@ -1140,9 +1087,6 @@ static int __init pmb110_170_mode_init(void)
 
 	if (!_kallsyms_lookup_name)
 		return -ENOENT;
-	ret = validate_device_identity();
-	if (ret)
-		return ret;
 
 	panel_symbol = _kallsyms_lookup_name("oplus_display0_params");
 	porch_symbol = _kallsyms_lookup_name("mtk_dsi_porch_setting");
@@ -1185,13 +1129,13 @@ static int __init pmb110_170_mode_init(void)
 	if (READ_ONCE(state.comp)) {
 		scnprintf(state.status, sizeof(state.status),
 			"installed=0 captured=1 modes=12 ready=1 "
-			"fake_mode_default=0 boot_mode=1 device_bound=1 "
+				"fake_mode_default=0 boot_mode=1 "
 			"dtbo=untouched");
 		pr_info("pmb110_170_mode: loaded boot-ready disabled\n");
 	} else {
 		scnprintf(state.status, sizeof(state.status),
 			"installed=0 captured=0 modes=12 ready=0 "
-			"fake_mode_default=0 boot_mode=0 device_bound=1 "
+				"fake_mode_default=0 boot_mode=0 "
 			"dtbo=untouched");
 		pr_info("pmb110_170_mode: loaded disabled; switch mode via "
 			"SurfaceFlinger to capture DSI\n");

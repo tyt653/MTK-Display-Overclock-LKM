@@ -13,8 +13,7 @@ refresh targets use copied 165Hz panel timing as their DDIC command path.
 
 The implementation is tied to one PMB110 software and kernel ABI. The source
 validates the panel name `panel_aa618_p_3_a0034_dsi_vdo`, the stock mode table,
-the 165Hz timing geometry, and the target device identity before installing
-runtime hooks.
+and the 165Hz timing geometry before installing runtime hooks.
 
 The validated baseline is:
 
@@ -67,18 +66,6 @@ active. A mode showing `170Hz` or `185Hz` in framework UI does not prove that
 the panel is physically refreshing at that rate; measure the panel with a
 hardware- or driver-side counter.
 
-## Device Binding
-
-The C source intentionally contains no device ID. It requires a compile-time
-`PMB110_SERIAL_FNV64` value and computes FNV-1a over the 16-character serial
-returned by the target's `oplusboot` serial interface at module initialization.
-A mismatch returns `-ENODEV` before display probes are installed.
-
-Keep the real serial and its hash outside this public repository. The public
-build script refuses to run unless the value is supplied through the
-environment. Do not put it in shell history, CI logs, issue reports, or a
-committed `.env` file.
-
 ## Public Build
 
 The only build entry point is `scripts/build_module.sh`. It deliberately uses
@@ -94,7 +81,6 @@ Required inputs:
 | `PMB110_DISPLAY_ROOT` | `kernel/kernel_device_modules-6.12` inside the matching OnePlus modules checkout |
 | `PMB110_CLANG` | Android Clang r536225 `clang` executable |
 | `PMB110_LD_LLD` | Matching r536225 `ld.lld` executable |
-| `PMB110_SERIAL_FNV64` | Private 64-bit FNV-1a hash for the authorized 16-character device ID |
 
 Example (paths are examples only):
 
@@ -104,12 +90,10 @@ export PMB110_KERNEL_SOURCE=/path/to/android_kernel_oneplus_mt6993
 export PMB110_DISPLAY_ROOT=/path/to/android_kernel_modules_and_devicetree_oneplus_mt6993/kernel/kernel_device_modules-6.12
 export PMB110_CLANG=/path/to/clang-r536225/bin/clang
 export PMB110_LD_LLD=/path/to/clang-r536225/bin/ld.lld
-export PMB110_SERIAL_FNV64=0x0000000000000000ULL
 sh scripts/build_module.sh
 ```
 
-The placeholder hash above is not a usable device binding. The output is
-`out/PMB110_185_Mode.ko`; the internal Linux module name remains
+The output is `out/PMB110_185_Mode.ko`; the internal Linux module name remains
 `pmb110_170_mode` for compatibility with the validated runtime parameter paths.
 The script requires Android Clang r536225, based on Clang 19.0.1, and fails
 closed for another compiler.
