@@ -95,7 +95,7 @@ sh scripts/build_module.sh
 ```
 
 The output is `out/PMB110_185_Mode.ko`; the internal Linux module name remains
-`pmb110_170_mode` for compatibility with the validated runtime parameter paths.
+`pmb110_185_mode` for the current runtime parameter paths.
 The script requires Android Clang r536225, based on Clang 19.0.1, and fails
 closed for another compiler.
 

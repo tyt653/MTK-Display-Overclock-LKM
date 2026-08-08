@@ -636,7 +636,7 @@ static noinline __used int pmb110_mode_switch_update_for_vdo(
 		clock_ret = switch_sticky_link(true);
 	if (clock_ret) {
 		WRITE_ONCE(state.last_error, clock_ret);
-		pr_err("pmb110_170_mode: sticky link recovery %u->%u failed: %d\n",
+		pr_err("pmb110_185_mode: sticky link recovery %u->%u failed: %d\n",
 			cur_mode, dst_mode, clock_ret);
 		return clock_ret;
 	}
@@ -799,7 +799,7 @@ static int install_modes(void)
 		"hz170=12/13 vfp170=326/299 hz185=14/15 vfp185=70/80 "
 		"rate=1496 mipi=sticky-dyn-vfp "
 		"enum=FHD_SDC165 dtbo=untouched");
-	pr_info("pmb110_170_mode: %s\n", state.status);
+	pr_info("pmb110_185_mode: %s\n", state.status);
 	return 0;
 
 rollback:
@@ -888,7 +888,7 @@ static int remove_modes(void)
 		if (ret) {
 			recovery_ret = switch_sticky_link(true);
 			if (recovery_ret)
-				pr_err("pmb110_170_mode: link recovery after restore failure: %d\n",
+				pr_err("pmb110_185_mode: link recovery after restore failure: %d\n",
 					recovery_ret);
 			goto unlock;
 		}
@@ -923,7 +923,7 @@ unlock:
 		"installed=0 captured=1 modes=12 last_error=%d "
 		"dtbo=untouched",
 		ret);
-	pr_info("pmb110_170_mode: removed runtime modes ret=%d\n", ret);
+	pr_info("pmb110_185_mode: removed runtime modes ret=%d\n", ret);
 
 	state.original_mapping = NULL;
 	state.original_vdo_update = NULL;
@@ -1045,7 +1045,7 @@ static int porch_pre_handler(struct kprobe *probe, struct pt_regs *regs)
 		scnprintf(state.status, sizeof(state.status),
 			"installed=0 captured=1 modes=12 ready=1 "
 			"dtbo=untouched");
-		pr_info("pmb110_170_mode: captured primary DSI component\n");
+			pr_info("pmb110_185_mode: captured primary DSI component\n");
 	}
 
 	return 0;
@@ -1077,7 +1077,7 @@ static int enum_ret_handler(struct kretprobe_instance *instance,
 	return 0;
 }
 
-static int __init pmb110_170_mode_init(void)
+static int __init pmb110_185_mode_init(void)
 {
 	unsigned long panel_symbol;
 	unsigned long porch_symbol;
@@ -1131,19 +1131,19 @@ static int __init pmb110_170_mode_init(void)
 			"installed=0 captured=1 modes=12 ready=1 "
 				"fake_mode_default=0 boot_mode=1 "
 			"dtbo=untouched");
-		pr_info("pmb110_170_mode: loaded boot-ready disabled\n");
+		pr_info("pmb110_185_mode: loaded boot-ready disabled\n");
 	} else {
 		scnprintf(state.status, sizeof(state.status),
 			"installed=0 captured=0 modes=12 ready=0 "
 				"fake_mode_default=0 boot_mode=0 "
 			"dtbo=untouched");
-		pr_info("pmb110_170_mode: loaded disabled; switch mode via "
+		pr_info("pmb110_185_mode: loaded disabled; switch mode via "
 			"SurfaceFlinger to capture DSI\n");
 	}
 	return 0;
 }
 
-static void __exit pmb110_170_mode_exit(void)
+static void __exit pmb110_185_mode_exit(void)
 {
 	if (state.porch_registered) {
 		unregister_kprobe(&state.porch_probe);
@@ -1154,13 +1154,13 @@ static void __exit pmb110_170_mode_exit(void)
 		state.enum_registered = false;
 	}
 
-	pr_info("pmb110_170_mode: unloaded captures=%lu enum_fixes=%lu "
+	pr_info("pmb110_185_mode: unloaded captures=%lu enum_fixes=%lu "
 		"clock_switches=%lu\n", state.captures, state.enum_fixes,
 		state.clock_switches);
 }
 
-module_init(pmb110_170_mode_init);
-module_exit(pmb110_170_mode_exit);
+module_init(pmb110_185_mode_init);
+module_exit(pmb110_185_mode_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Smartisan_Apple_Kt");

@@ -69,8 +69,8 @@ export PMB110_LD_LLD=/path/to/clang-r536225/bin/ld.lld
 sh scripts/build_module.sh
 ```
 
-成功产物为 `out/PMB110_185_Mode.ko`，内核内部模块名仍是 `pmb110_170_mode`，这是
-为了保持已经验证的 sysfs 参数路径和运行时控制接口不变。
+成功产物为 `out/PMB110_185_Mode.ko`，内核内部模块名为 `pmb110_185_mode`，
+sysfs 参数路径和运行时控制接口也统一使用该名称。
 
 ## ABI、CRC 和 KCFI 注意事项
 

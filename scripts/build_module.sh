@@ -10,7 +10,7 @@ kernel_source=${PMB110_KERNEL_SOURCE:-}
 display_root=${PMB110_DISPLAY_ROOT:-}
 clang=${PMB110_CLANG:-}
 linker=${PMB110_LD_LLD:-}
-module_name=${PMB110_MODULE_NAME:-pmb110_170_mode}
+module_name=${PMB110_MODULE_NAME:-pmb110_185_mode}
 output_dir=${PMB110_OUTPUT_DIR:-$project_root/out}
 source_file=$project_root/src/PMB110_185_Mode.c
 
