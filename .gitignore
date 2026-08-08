@@ -1,0 +1,13 @@
+.DS_Store
+.env
+out/
+*.o
+*.ko
+*.mod
+*.cmd
+*.tmp
+*.log
+kernel-headers/
+kernel-source/
+display-source/
+toolchain/
