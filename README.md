@@ -1,15 +1,13 @@
 # PMB110 185Hz Full-Rate Runtime Module
 
+中文说明：[README_CN.md](README_CN.md)
+
 This project is a source-only reference implementation for the PMB110 display
 runtime module. It adds 170Hz and 185Hz modes to the stock panel at both stock
 resolutions. When the module is enabled, it uses one fixed 1496Mbps MIPI DSI
 link for the complete mode table. Official modes are kept at their original
 refresh targets by compensating vertical blanking, while the two additional
 refresh targets use copied 165Hz panel timing as their DDIC command path.
-
-No DTBO, boot image, vendor partition, panel firmware, or KernelSU package is
-included. The repository also contains no device ID, ID hash, compiled module,
-log, OTA image, kernel headers, kernel source, display source, or compiler.
 
 ## Target And Baseline
 
@@ -22,6 +20,7 @@ The validated baseline is:
 
 - Product: PMB110
 - Platform: MediaTek MT6993
+- Panel: `panel_aa618_p_3_a0034_dsi_vdo`
 - Official software: `PMB110_16.0.9.400(CN01)`
 - Kernel release string: `6.12.58-android16-6-g7704a1ae279b-ab15213644-4k`
 - Official kernel branch: `oneplus/mt6993_b_16.0_ace_6_ultra`
