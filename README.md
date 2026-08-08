@@ -1,17 +1,18 @@
-# PMB110 185Hz Full-Rate Runtime Module
+# MTK Display Overclock LKM: PMB110 Reference
 
 中文说明：[README_CN.md](README_CN.md)
 
-This project is a source-only reference implementation for the PMB110 display
-runtime module. It adds 170Hz and 185Hz modes to the stock panel at both stock
-resolutions. When the module is enabled, it uses one fixed 1496Mbps MIPI DSI
+This project is a source-only reference implementation for MTK display
+overclocking through a loadable kernel module. PMB110 is used as the concrete
+reference device: it adds 170Hz and 185Hz modes to the stock panel at both
+stock resolutions. When the module is enabled, it uses one fixed 1496Mbps MIPI DSI
 link for the complete mode table. Official modes are kept at their original
 refresh targets by compensating vertical blanking, while the two additional
 refresh targets use copied 165Hz panel timing as their DDIC command path.
 
-## Target And Baseline
+## PMB110 Example Baseline
 
-The implementation is tied to one PMB110 software and kernel ABI. The source
+The included example is tied to one PMB110 software and kernel ABI. The source
 validates the panel name `panel_aa618_p_3_a0034_dsi_vdo`, the stock mode table,
 and the 165Hz timing geometry before installing runtime hooks.
 
@@ -182,6 +183,6 @@ layouts and callback prototypes from that device's display source, regenerate
 symbol CRCs from its kernel build, and replace every panel/mode validation
 constant. Never bypass validation merely to make `insmod` return success.
 
-The source in this repository is therefore a PMB110-specific baseline, not a
+The source in this repository is therefore a PMB110 reference baseline, not a
 drop-in MTK overclock framework. A successful compile on another device does
 not imply ABI or panel compatibility.
