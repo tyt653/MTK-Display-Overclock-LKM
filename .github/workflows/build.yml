@@ -21,10 +21,17 @@ jobs:
       run: |
         # 解压真机导出的 kheaders.tar.xz
         tar -xJf kheaders.tar.xz
-        # 动态查找解压后的内核源码根目录（通常是 usr/ 或其他名字）
-        REAL_KERNEL_DIR=$(find . -maxdepth 2 -name "Makefile" | grep -v "src/Makefile" | head -n 1 | xargs dirname)
-        echo "Real kernel source dir is: $REAL_KERNEL_DIR"
-        # 将找到的目录名写入环境变量，供后续步骤使用
+        echo "--- 解压后当前目录内容 ---"
+        ls -la
+        
+        # 动态查找真正的内核目录，并加上容错机制
+        KMAKEFILE=$(find . -name "Makefile" | grep -v "src/Makefile" | head -n 1)
+        if [ -n "$KMAKEFILE" ]; then
+          REAL_KERNEL_DIR=$(dirname "$KMAKEFILE")
+        else
+          REAL_KERNEL_DIR="."
+        fi
+        echo "REAL_KERNEL_DIR is: $REAL_KERNEL_DIR"
         echo "REAL_KERNEL_DIR=$REAL_KERNEL_DIR" >> $GITHUB_ENV
 
     - name: Patch C Code (Real Device Adapt)
@@ -56,14 +63,13 @@ jobs:
     - name: Create Makefile
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        echo "ccflags-y += -I$PWD/src" >> src/Makefile
 
     - name: Compile LKM
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 使用自动找出的真机内核目录进行编译
-        make -C $REAL_KERNEL_DIR M=$PWD/src modules
+        # 使用自动找出的真机内核目录进行编译，如果找不到则回退到当前目录
+        make -C ${REAL_KERNEL_DIR:-.} M=$PWD/src modules
 
     - name: Upload Result
       uses: actions/upload-artifact@v4
