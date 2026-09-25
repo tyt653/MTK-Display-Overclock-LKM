@@ -16,13 +16,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev
-        # 安装解包工具
         sudo apt-get install -y android-sdk-libsparse-utils
 
-    - name: Download Unpack Tool
+    - name: Download Unpack Tool (GitHub Mirror)
       run: |
-        # 下载 AOSP 的 unpack_bootimg 工具
-        wget https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/main/unpack_bootimg.py -O unpack_bootimg.py
+        # 换用更稳定的 GitHub 镜像源下载 unpack_bootimg.py
+        wget --tries=5 --waitretry=5 --no-check-certificate https://raw.githubusercontent.com/aosp-mirror/platform_system_tools_mkbootimg/master/unpack_bootimg.py -O unpack_bootimg.py || \
+        wget --tries=5 --waitretry=5 --no-check-certificate https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/main/unpack_bootimg.py?format=TEXT | base64 -d > unpack_bootimg.py
 
     - name: Merge and Unpack Vendor Boot
       run: |
@@ -32,11 +32,11 @@ jobs:
         # 解包 vendor_boot.img
         python3 unpack_bootimg.py --boot_img vendor_boot.img --out extracted_boot
         
-        # 寻找里面的 mediatek_drm.ko
+        # 寻找里面的 mediatek_drm.ko 或 panel_ae037.ko
         find extracted_boot -name "mediatek_drm.ko" -exec cp {} . \;
         find extracted_boot -name "panel_ae037_p_3_a0026_dsi_vdo.ko" -exec cp {} . \;
         
-        # 如果找到了 .ko，提取其中的 BTF 结构体
+        # 提取 BTF 结构体
         if [ -f mediatek_drm.ko ]; then
             echo "Found mediatek_drm.ko, extracting BTF..."
             bpftool btf dump file mediatek_drm.ko format c > real_vmlinux.h
@@ -45,8 +45,7 @@ jobs:
             bpftool btf dump file panel_ae037_p_3_a0026_dsi_vdo.ko format c > real_vmlinux.h
         else
             echo "ERROR: Could not find mediatek_drm.ko inside vendor_boot.img!"
-            echo "Trying to find it in /vendor_dlkm..."
-            # 兜底方案：如果镜像里没有，我们先用一个最简的假头文件占位
+            # 兜底方案：生成一个最小的占位符，但我们要继续尝试编译
             echo "struct mtk_dsi { void *dev; unsigned int data_rate; void *pll_clk; };" > real_vmlinux.h
         fi
 
