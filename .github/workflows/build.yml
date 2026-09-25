@@ -17,34 +17,13 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
 
-    - name: Download AOSP Common Kernel
+    - name: Extract Real Kheaders
       run: |
-        # 先拿 AOSP 的源码树作为“编译框架”
-        wget https://github.com/aosp-mirror/kernel_common/archive/refs/heads/android14-6.1.zip -O kernel.zip
-        unzip kernel.zip
-        mv kernel_common-android14-6.1 kernel_source
-
-    - name: Extract and Merge Real Kheaders
-      run: |
-        # 1. 解压真机 kheaders
-        mkdir kheaders_extracted
-        tar -xJf kheaders.tar.xz -C kheaders_extracted
-        
-        # 2. 动态寻找解压出来的目录结构
-        KH_DIR=$(find kheaders_extracted -name "include" -type d | head -n 1 | xargs dirname)
-        echo "Real kheaders base dir: $KH_DIR"
-        
-        if [ -z "$KH_DIR" ]; then
-          echo "ERROR: Could not find include directory in kheaders!"
-          exit 1
-        fi
-        
-        # 3. 把真机的头文件和 arch 目录，覆盖到 AOSP 源码树上！
-        # 这是最关键的一步，保证编译出来的结构体 100% 对齐真机
-        cp -rv $KH_DIR/include/* kernel_source/include/
-        cp -rv $KH_DIR/arch/* kernel_source/arch/
-        
-        echo "Real kheaders merged into AOSP tree successfully."
+        # 单独解压到 kheaders 目录，不污染当前目录
+        mkdir -p kheaders
+        tar -xJf kheaders.tar.xz -C kheaders
+        echo "--- kheaders 目录结构 ---"
+        ls -la kheaders/
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -72,16 +51,7 @@ jobs:
         print("Dynamic symbol patching complete.")
         EOF
 
-    - name: Configure Kernel
-      run: |
-        cd kernel_source
-        export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        make gki_defconfig
-        make modules_prepare
-        cd ..
-
-    - name: Create Makefile for LKM
+    - name: Create Makefile
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
 
@@ -89,8 +59,9 @@ jobs:
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 最终在融合了真机头文件的 AOSP 源码树里编译我们的模块
-        make -C kernel_source M=$PWD/src modules
+        # 直接使用真机 kheaders 作为内核源码进行编译
+        # kheaders 已经包含了正确的 autoconf.h 和所有头文件，无需 make prepare！
+        make -C kheaders M=$PWD/src modules
 
     - name: Upload Result
       uses: actions/upload-artifact@v4
