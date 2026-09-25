@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Real BTF Adapt)
+name: Build RMX5062 LKM (Real Kheaders)
 
 on:
   workflow_dispatch:
@@ -15,54 +15,24 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev
-        sudo apt-get install -y android-sdk-libsparse-utils
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
 
-    - name: Download Unpack Tool (GitHub Mirror)
+    - name: Extract Real Kheaders
       run: |
-        # 换用更稳定的 GitHub 镜像源下载 unpack_bootimg.py
-        wget --tries=5 --waitretry=5 --no-check-certificate https://raw.githubusercontent.com/aosp-mirror/platform_system_tools_mkbootimg/master/unpack_bootimg.py -O unpack_bootimg.py || \
-        wget --tries=5 --waitretry=5 --no-check-certificate https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/main/unpack_bootimg.py?format=TEXT | base64 -d > unpack_bootimg.py
+        # 解压真机导出的 kheaders.tar.xz
+        tar -xJf kheaders.tar.xz
+        # 解压后通常会生成一个 kheaders 目录，里面包含 Makefile、include 等
+        ls -la kheaders/
 
-    - name: Merge and Unpack Vendor Boot
+    - name: Patch C Code (Real Device Adapt)
       run: |
-        # 合并你上传的分块文件
-        cat vendor_boot_part_* > vendor_boot.img
-        
-        # 解包 vendor_boot.img
-        python3 unpack_bootimg.py --boot_img vendor_boot.img --out extracted_boot
-        
-        # 寻找里面的 mediatek_drm.ko 或 panel_ae037.ko
-        find extracted_boot -name "mediatek_drm.ko" -exec cp {} . \;
-        find extracted_boot -name "panel_ae037_p_3_a0026_dsi_vdo.ko" -exec cp {} . \;
-        
-        # 提取 BTF 结构体
-        if [ -f mediatek_drm.ko ]; then
-            echo "Found mediatek_drm.ko, extracting BTF..."
-            bpftool btf dump file mediatek_drm.ko format c > real_vmlinux.h
-        elif [ -f panel_ae037_p_3_a0026_dsi_vdo.ko ]; then
-            echo "Found panel_ae037.ko, extracting BTF..."
-            bpftool btf dump file panel_ae037_p_3_a0026_dsi_vdo.ko format c > real_vmlinux.h
-        else
-            echo "ERROR: Could not find mediatek_drm.ko inside vendor_boot.img!"
-            # 兜底方案：生成一个最小的占位符，但我们要继续尝试编译
-            echo "struct mtk_dsi { void *dev; unsigned int data_rate; void *pll_clk; };" > real_vmlinux.h
-        fi
-
-    - name: Download AOSP Common Kernel
-      run: |
-        wget https://github.com/aosp-mirror/kernel_common/archive/refs/heads/android14-6.1.zip -O kernel.zip
-        unzip kernel.zip
-        mv kernel_common-android14-6.1 kernel_source
-
-    - name: Patch C Code (Dynamic Symbol Resolve)
-      run: |
+        # 替换面板名、函数名、vermagic
         sed -i 's/panel_aa618_p_3_a0034_dsi_vdo/panel_ae037_p_3_a0026_dsi_vdo/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_set_LFR/tmtk_dsi_set_LFR/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
-        # 注入动态查找逻辑，绕过符号导出限制
+        # 注入动态查找逻辑，防止因未导出符号导致加载失败
         python3 << 'EOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
@@ -80,33 +50,19 @@ jobs:
         print("Dynamic symbol patching complete.")
         EOF
 
-    - name: Fake Missing Header
-      run: |
-        # 用真机提取的 real_vmlinux.h 替代 mtk_dsi.h
-        cp real_vmlinux.h src/mtk_dsi.h
-        sed -i '/struct module __this_module/d' src/mtk_dsi.h
-
-    - name: Configure Kernel
-      run: |
-        cd kernel_source
-        export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        make gki_defconfig
-        make modules_prepare
-        cd ..
-
     - name: Create Makefile
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        echo "ccflags-y += -I$PWD/kernel_source/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/src" >> src/Makefile
-        echo "ccflags-y += -Wno-error" >> src/Makefile
 
     - name: Compile LKM
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        make -C kernel_source M=$PWD/src modules
+        # 直接使用真机的 kheaders 目录作为内核源
+        make -C kheaders M=$PWD/src modules
 
     - name: Upload Result
       uses: actions/upload-artifact@v4
