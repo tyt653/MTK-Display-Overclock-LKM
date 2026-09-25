@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Real Kheaders Override)
+name: Build RMX5062 LKM (Kheaders Path Priority)
 
 on:
   workflow_dispatch:
@@ -23,19 +23,24 @@ jobs:
         unzip kernel.zip
         mv kernel_common-android14-6.1 kernel_source
 
-    - name: Extract and Override with Real Kheaders
+    - name: Extract Real Kheaders
       run: |
-        # 解压真机 kheaders
         mkdir -p kheaders
         tar -xJf kheaders.tar.xz -C kheaders
-        
-        # 核心修正：用真机头文件覆盖 AOSP 的假头文件
-        # 覆盖 include 目录
-        cp -rf kheaders/include/* kernel_source/include/
-        # 覆盖 arch/arm64 目录（如果存在）
-        if [ -d "kheaders/arch/arm64" ]; then
-            cp -rf kheaders/arch/arm64/* kernel_source/arch/arm64/
-        fi
+
+    - name: Configure AOSP Kernel
+      run: |
+        cd kernel_source
+        export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        # 强制使用 AOSP 默认配置
+        make gki_defconfig
+        # 核心修正：强制启用模块支持，防止被 kheaders 里的配置覆盖导致 modules 被禁用
+        scripts/config --enable MODULES
+        make olddefconfig
+        # 正常执行模块准备，生成 Module.symvers
+        make modules_prepare
+        cd ..
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -63,41 +68,16 @@ jobs:
         print("Dynamic symbol patching complete.")
         EOF
 
-    - name: Configure AOSP Kernel
-      run: |
-        cd kernel_source
-        export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        # 清理缺失的 Kconfig 引用，防止 gki_defconfig 报错
-        python3 << 'EOF'
-        import os, re
-        for root, dirs, files in os.walk('.'):
-            for file in files:
-                if file == 'Kconfig':
-                    filepath = os.path.join(root, file)
-                    with open(filepath, 'r') as f:
-                        lines = f.readlines()
-                    with open(filepath, 'w') as f:
-                        for line in lines:
-                            match = re.match(r'\s*source\s+"([^"]+)"', line)
-                            if match:
-                                rel_path = match.group(1)
-                                full_path = os.path.join(root, rel_path)
-                                if not os.path.exists(full_path):
-                                    f.write('#' + line)
-                                else:
-                                    f.write(line)
-                            else:
-                                f.write(line)
-        print("Kconfig cleanup complete.")
-        EOF
-        make gki_defconfig
-        make modules_prepare
-        cd ..
-
     - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
+        # 关键：将真机 kheaders 的头文件路径放在最前面，强制优先使用！
+        echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
+        # AOSP 的 include 路径仅作为后备
+        echo "ccflags-y += -I$PWD/kernel_source/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kernel_source/arch/arm64/include" >> src/Makefile
 
     - name: Compile LKM
       run: |
