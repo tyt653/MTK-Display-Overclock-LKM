@@ -17,13 +17,16 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
 
-    - name: Extract Real Kheaders
+    - name: Download AOSP Common Kernel (Build Framework)
       run: |
-        # 单独解压到 kheaders 目录，不污染当前目录
+        wget https://github.com/aosp-mirror/kernel_common/archive/refs/heads/android14-6.1.zip -O kernel.zip
+        unzip kernel.zip
+        mv kernel_common-android14-6.1 kernel_source
+
+    - name: Extract Real Kheaders (Header Source)
+      run: |
         mkdir -p kheaders
         tar -xJf kheaders.tar.xz -C kheaders
-        echo "--- kheaders 目录结构 ---"
-        ls -la kheaders/
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -53,15 +56,18 @@ jobs:
 
     - name: Create Makefile
       run: |
+        # 核心：优先包含真机 kheaders 的头文件路径，覆盖 AOSP 的假结构体
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
 
     - name: Compile LKM
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 直接使用真机 kheaders 作为内核源码进行编译
-        # kheaders 已经包含了正确的 autoconf.h 和所有头文件，无需 make prepare！
-        make -C kheaders M=$PWD/src modules
+        # 使用 AOSP 源码作为构建框架，但头文件强制指向真机 kheaders
+        make -C kernel_source M=$PWD/src modules
 
     - name: Upload Result
       uses: actions/upload-artifact@v4
