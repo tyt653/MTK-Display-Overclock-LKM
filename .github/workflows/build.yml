@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Real Kheaders)
+name: Build RMX5062 LKM (Real Kheaders Override)
 
 on:
   workflow_dispatch:
@@ -23,18 +23,29 @@ jobs:
         unzip kernel.zip
         mv kernel_common-android14-6.1 kernel_source
 
-    - name: Extract Real Kheaders (Header Source)
+    - name: Extract and Override with Real Kheaders
       run: |
+        # 解压真机 kheaders
         mkdir -p kheaders
         tar -xJf kheaders.tar.xz -C kheaders
+        
+        # 核心修正：用真机头文件覆盖 AOSP 的假头文件
+        # 覆盖 include 目录
+        cp -rf kheaders/include/* kernel_source/include/
+        # 覆盖 arch/arm64 目录（如果存在）
+        if [ -d "kheaders/arch/arm64" ]; then
+            cp -rf kheaders/arch/arm64/* kernel_source/arch/arm64/
+        fi
 
     - name: Patch C Code (Real Device Adapt)
       run: |
+        # 替换面板名、函数名、vermagic
         sed -i 's/panel_aa618_p_3_a0034_dsi_vdo/panel_ae037_p_3_a0026_dsi_vdo/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_set_LFR/tmtk_dsi_set_LFR/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
+        # 注入动态查找逻辑，绕过符号导出限制
         python3 << 'EOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
@@ -87,10 +98,6 @@ jobs:
     - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        # 关键：优先包含真机 kheaders 的头文件，覆盖 AOSP 假结构体
-        echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
-        echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
-        echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
 
     - name: Compile LKM
       run: |
