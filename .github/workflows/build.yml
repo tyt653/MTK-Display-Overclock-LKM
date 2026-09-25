@@ -30,13 +30,11 @@ jobs:
 
     - name: Patch C Code (Real Device Adapt)
       run: |
-        # 替换面板名、函数名、vermagic
         sed -i 's/panel_aa618_p_3_a0034_dsi_vdo/panel_ae037_p_3_a0026_dsi_vdo/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_set_LFR/tmtk_dsi_set_LFR/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
-        # 注入动态查找逻辑，防止因未导出符号导致加载失败
         python3 << 'EOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
@@ -54,10 +52,42 @@ jobs:
         print("Dynamic symbol patching complete.")
         EOF
 
-    - name: Create Makefile
+    - name: Configure AOSP Kernel
       run: |
-        # 核心：优先包含真机 kheaders 的头文件路径，覆盖 AOSP 的假结构体
+        cd kernel_source
+        export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        # 清理缺失的 Kconfig 引用，防止 gki_defconfig 报错
+        python3 << 'EOF'
+        import os, re
+        for root, dirs, files in os.walk('.'):
+            for file in files:
+                if file == 'Kconfig':
+                    filepath = os.path.join(root, file)
+                    with open(filepath, 'r') as f:
+                        lines = f.readlines()
+                    with open(filepath, 'w') as f:
+                        for line in lines:
+                            match = re.match(r'\s*source\s+"([^"]+)"', line)
+                            if match:
+                                rel_path = match.group(1)
+                                full_path = os.path.join(root, rel_path)
+                                if not os.path.exists(full_path):
+                                    f.write('#' + line)
+                                else:
+                                    f.write(line)
+                            else:
+                                f.write(line)
+        print("Kconfig cleanup complete.")
+        EOF
+        make gki_defconfig
+        make modules_prepare
+        cd ..
+
+    - name: Create Makefile for LKM
+      run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
+        # 关键：优先包含真机 kheaders 的头文件，覆盖 AOSP 假结构体
         echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
@@ -66,7 +96,6 @@ jobs:
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 使用 AOSP 源码作为构建框架，但头文件强制指向真机 kheaders
         make -C kernel_source M=$PWD/src modules
 
     - name: Upload Result
