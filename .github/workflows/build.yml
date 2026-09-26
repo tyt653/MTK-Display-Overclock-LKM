@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Force Modules)
+name: Build Neo7 Turbo Kprobe Module
 
 on:
   workflow_dispatch:
@@ -14,71 +14,27 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 unzip wget gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
+        sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 unzip wget gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev
 
-    - name: Download Kernel
+    - name: Download AOSP Kernel
       run: |
-        wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/main.zip -O kernel.zip || wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/master.zip -O kernel.zip
+        wget https://github.com/aosp-mirror/kernel_common/archive/refs/heads/android14-6.1.zip -O kernel.zip
         unzip kernel.zip
-        mv realme_neo7_turbo-AndroidV-kernel-source-* kernel_source
+        mv kernel_common-android14-6.1 kernel_source
 
-    - name: Patch Kconfig
-      run: |
-        python3 -c "
-        import os, re
-        for root, dirs, files in os.walk('kernel_source'):
-            for file in files:
-                if file == 'Kconfig':
-                    filepath = os.path.join(root, file)
-                    with open(filepath, 'r') as f: lines = f.readlines()
-                    with open(filepath, 'w') as f:
-                        for line in lines:
-                            match = re.match(r'\s*source\s+\"([^\"]+)\"', line)
-                            if match:
-                                rel = match.group(1)
-                                if not os.path.exists(os.path.normpath(os.path.join(root, rel))): f.write('#'+line)
-                                else: f.write(line)
-                            else: f.write(line)
-        "
-
-    - name: Patch C Code
-      run: |
-        sed -i 's/panel_aa618_p_3_a0034_dsi_vdo/panel_ae037_p_3_a0026_dsi_vdo/g' src/PMB110_185_Mode.c
-        sed -i 's/mtk_dsi_set_LFR/tmtk_dsi_set_LFR/g' src/PMB110_185_Mode.c
-        sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
-        sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
-        python3 -c "
-        f=open('src/PMB110_185_Mode.c','r')
-        code=f.read()
-        f.close()
-        code=code.replace('tmtk_dsi_set_LFR(','((int(*)(void*,unsigned int))kallsyms_lookup_name(\"tmtk_dsi_set_LFR\"))(')
-        code=code.replace('tmtk_dsi_porch_setting(','((int(*)(void*,void*))kallsyms_lookup_name(\"tmtk_dsi_porch_setting\"))(')
-        f=open('src/PMB110_185_Mode.c','w')
-        f.write(code)
-        f.close()
-        "
-
-    - name: Configure Kernel (Force Enable Modules)
+    - name: Configure Kernel
       run: |
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
+        # 使用 AOSP 默认配置（它会自动包含标准 Linux 头文件和 modules 支持）
         make gki_defconfig
-        # 核心修复：修改 .config 并没有用，必须强制修改 auto.conf
-        sed -i 's/# CONFIG_MODULES is not set/CONFIG_MODULES=y/g' .config
-        sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
-        mkdir -p include/config
-        echo "CONFIG_MODULES=y" >> include/config/auto.conf
-        # 直接执行 prepare，绕过 olddefconfig 的检查
         make modules_prepare
         cd ..
 
     - name: Create Makefile
       run: |
-        echo 'obj-m += PMB110_185_Mode.o' > src/Makefile
-        echo 'ccflags-y += -I$PWD/kernel_source/include' >> src/Makefile
-        echo 'ccflags-y += -I$PWD/kernel_source/arch/arm64/include' >> src/Makefile
-        echo 'ccflags-y += -I$PWD/kernel_source/drivers/gpu/drm/mediatek' >> src/Makefile
+        echo "obj-m += kprobe_neo7.o" > src/Makefile
 
     - name: Compile LKM
       run: |
@@ -89,5 +45,5 @@ jobs:
     - name: Upload Result
       uses: actions/upload-artifact@v4
       with:
-        name: rmx5062-lkm
+        name: kprobe-ko
         path: "**/*.ko"
