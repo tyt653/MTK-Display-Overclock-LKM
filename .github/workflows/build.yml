@@ -58,18 +58,21 @@ jobs:
         f.close()
         "
 
-    - name: Configure Kernel (Force Enable Modules)
+    - name: Configure Kernel (Force Enable Modules at Defconfig Source)
       run: |
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
+        
+        # 核心修复：在运行 defconfig 前，先往 gki_defconfig 里强制写入 CONFIG_MODULES=y
+        echo "CONFIG_MODULES=y" >> arch/arm64/configs/gki_defconfig
+        
         make gki_defconfig
-        # 暴力替换，尝试所有可能的写法
+        
+        # 再次强制写入 .config，防止被重置
         sed -i 's/# CONFIG_MODULES is not set/CONFIG_MODULES=y/g' .config
         sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
-        # 如果里面根本没有这个配置，强行追加
-        grep -q 'CONFIG_MODULES' .config || echo 'CONFIG_MODULES=y' >> .config
-        # 直接执行准备，绝对不加错误检查，让它自己崩溃或成功
+        
         make modules_prepare
         cd ..
 
