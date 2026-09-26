@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Real Device Source Fixed)
+name: Build RMX5062 LKM (Force Modules)
 
 on:
   workflow_dispatch:
@@ -14,10 +14,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        # 基础编译工具链（不含 x86 多库，避免与 ARM64 交叉编译器冲突）
-        sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 unzip wget
-        # ARM64 交叉编译器单独安装
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
+        sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 unzip wget gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
 
     - name: Download Kernel
       run: |
@@ -43,7 +40,6 @@ jobs:
                                 else: f.write(line)
                             else: f.write(line)
         "
-        echo 'Kconfig patch done.'
 
     - name: Patch C Code
       run: |
@@ -61,19 +57,19 @@ jobs:
         f.write(code)
         f.close()
         "
-        echo 'C code patched.'
 
-    - name: Configure Kernel
+    - name: Configure Kernel (Force Enable Modules)
       run: |
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
         make gki_defconfig
-        echo 'CONFIG_MODULES=y' >> .config
-        make olddefconfig
-        sed -i 's/# CONFIG_MODULES is not set/CONFIG_MODULES=y/g' .config
-        sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
+        # 暴力替换所有可能隐藏 CONFIG_MODULES 的写法
+        sed -i 's/.*CONFIG_MODULES.*/CONFIG_MODULES=y/' .config
+        # 强制写入并绕过 olddefconfig 的重置（这里不再跑 olddefconfig，直接跑 prepare）
         make modules_prepare
+        echo "=== 检查 .config 中的 MODULES 状态 ==="
+        grep "CONFIG_MODULES" .config
         cd ..
 
     - name: Create Makefile
