@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Adaptation)
+name: Build RMX5062 LKM (Logical Separation)
 
 on:
   workflow_dispatch:
@@ -23,13 +23,11 @@ jobs:
         unzip kernel.zip
         mv kernel_common-android14-6.1 kernel_source
 
-    - name: Extract Real Kheaders
+    - name: Extract Real Kheaders (No Override!)
       run: |
-        # 解压真机 kheaders 到 kernel_source 的 include 目录，直接覆盖 AOSP 的假结构体
+        # 仅解压到独立目录，绝对不覆盖 AOSP 的 include
         mkdir -p kheaders
         tar -xJf kheaders.tar.xz -C kheaders
-        cp -rf kheaders/include/* kernel_source/include/ 2>/dev/null || true
-        cp -rf kheaders/arch/arm64/include/* kernel_source/arch/arm64/include/ 2>/dev/null || true
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -59,7 +57,7 @@ jobs:
 
     - name: Generate Real Module.symvers from Kallsyms
       run: |
-        # 根据真机 kallsyms 生成符号 CRC 表，让内核能够接纳模块
+        # 根据真机 kallsyms 生成符号 CRC 表
         python3 << 'PYEOF'
         with open('kallsyms.txt', 'r') as f:
             lines = f.readlines()
@@ -77,7 +75,6 @@ jobs:
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
         make gki_defconfig
-        # 强制开启模块，关闭签名校验
         scripts/config --enable MODULES
         scripts/config --disable MODULE_SIG
         scripts/config --disable MODULE_SIG_FORCE
@@ -86,12 +83,14 @@ jobs:
         make modules_prepare
         cd ..
 
-    - name: Create Makefile for LKM
+    - name: Create Makefile for LKM (Priority Path!)
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        # 真机 kheaders 头文件优先级最高
+        # 核心修正：在编译时，将真机 kheaders 的头文件路径放在最前面！
+        # 这样编译 C 代码时优先使用真机结构体，但绝不破坏 AOSP 构建系统。
         echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
 
     - name: Compile LKM
       run: |
