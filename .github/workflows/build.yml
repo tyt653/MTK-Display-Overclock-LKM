@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Real Device Source)
+name: Build RMX5062 LKM (Real Device Source Fixed)
 
 on:
   workflow_dispatch:
@@ -19,14 +19,39 @@ jobs:
 
     - name: Download Real Device Kernel Source
       run: |
-        # 核心：拉取真我 Neo7 Turbo 的官方内核源码
-        # 注意：不同仓库的默认分支可能是 main 或 master，这里统一尝试
+        # 重新拉取真机内核源码
         wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/main.zip -O kernel.zip || \
         wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/master.zip -O kernel.zip
         unzip kernel.zip
         mv realme_neo7_turbo-AndroidV-kernel-source-* kernel_source
-        echo "=== 源码树根目录结构 ==="
-        ls -la kernel_source/
+
+    - name: Patch Kernel Kconfig (Auto Clean Missing Dirs)
+      run: |
+        # 核心修复：自动扫描所有 Kconfig，注释掉指向不存在文件的 source 行
+        python3 << 'PYEOF'
+        import os, re
+
+        for root, dirs, files in os.walk('kernel_source'):
+            for file in files:
+                if file == 'Kconfig':
+                    filepath = os.path.join(root, file)
+                    with open(filepath, 'r') as f:
+                        lines = f.readlines()
+                    with open(filepath, 'w') as f:
+                        for line in lines:
+                            match = re.match(r'\s*source\s+"([^"]+)"', line)
+                            if match:
+                                rel_path = match.group(1)
+                                # 构建绝对路径
+                                abs_path = os.path.normpath(os.path.join(root, rel_path))
+                                if not os.path.exists(abs_path):
+                                    f.write('#' + line)
+                                else:
+                                    f.write(line)
+                            else:
+                                f.write(line)
+        print("Kconfig auto-cleanup complete.")
+        PYEOF
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -36,7 +61,7 @@ jobs:
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
-        # 注入动态查找逻辑，避免未导出符号报错
+        # 注入动态查找逻辑
         python3 << 'PYEOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
@@ -57,9 +82,9 @@ jobs:
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 由于该源码树可能不包含完整的 defconfig，我们尝试使用通用的 gki_defconfig
+        # 清理后，gki_defconfig 应该能顺利执行
         make gki_defconfig
-        # 强制启用模块编译
+        # 强制开启模块和关闭签名校验
         scripts/config --enable MODULES
         scripts/config --disable MODULE_SIG
         scripts/config --disable MODULE_SIG_FORCE
@@ -71,7 +96,7 @@ jobs:
     - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        # 关键：指向真机源码树的 include 路径
+        # 关键：直接指向真机源码的 include 路径，结构体100%对齐
         echo "ccflags-y += -I$PWD/kernel_source/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kernel_source/arch/arm64/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kernel_source/drivers/gpu/drm/mediatek" >> src/Makefile
