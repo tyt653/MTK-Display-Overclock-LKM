@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Pure Device Info)
+name: Build RMX5062 LKM (Adaptation)
 
 on:
   workflow_dispatch:
@@ -16,45 +16,20 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
-        sudo apt-get install -y linux-tools-common linux-tools-generic
 
-    - name: Extract Real Device Info (kheaders)
+    - name: Download AOSP Common Kernel (Build Framework)
       run: |
+        wget https://github.com/aosp-mirror/kernel_common/archive/refs/heads/android14-6.1.zip -O kernel.zip
+        unzip kernel.zip
+        mv kernel_common-android14-6.1 kernel_source
+
+    - name: Extract Real Kheaders
+      run: |
+        # 解压真机 kheaders 到 kernel_source 的 include 目录，直接覆盖 AOSP 的假结构体
         mkdir -p kheaders
         tar -xJf kheaders.tar.xz -C kheaders
-        echo "=== kheaders 结构 ==="
-        ls -la kheaders/
-
-    - name: Generate mtk_dsi.h from vmlinux.btf
-      run: |
-        # 从真机 BTF 中提取 struct mtk_dsi 的定义
-        if [ -f vmlinux.btf ]; then
-            echo "使用 vmlinux.btf 生成 mtk_dsi.h..."
-            bpftool btf dump file vmlinux.btf format c > vmlinux.h
-            # 提取 mtk_dsi 结构体
-            python3 << 'EOF'
-            import re
-            with open('vmlinux.h', 'r') as f:
-                content = f.read()
-            # 查找 struct mtk_dsi 定义
-            match = re.search(r'struct mtk_dsi \{.*?\};', content, re.DOTALL)
-            if match:
-                with open('src/mtk_dsi.h', 'w') as out:
-                    out.write('#ifndef MTK_DSI_H\n#define MTK_DSI_H\n')
-                    out.write(match.group(0))
-                    out.write('\n#endif\n')
-                print("struct mtk_dsi extracted successfully.")
-            else:
-                print("Warning: struct mtk_dsi not found in BTF, creating placeholder.")
-                with open('src/mtk_dsi.h', 'w') as out:
-                    out.write('#ifndef MTK_DSI_H\n#define MTK_DSI_H\n')
-                    out.write('struct mtk_dsi { void *dev; unsigned int data_rate; void *pll_clk; };\n')
-                    out.write('#endif\n')
-            EOF
-        else
-            echo "ERROR: vmlinux.btf not found!"
-            exit 1
-        fi
+        cp -rf kheaders/include/* kernel_source/include/ 2>/dev/null || true
+        cp -rf kheaders/arch/arm64/include/* kernel_source/arch/arm64/include/ 2>/dev/null || true
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -64,10 +39,11 @@ jobs:
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
-        # 注入动态查找逻辑
-        python3 << 'EOF'
+        # 注入动态查找逻辑，绕过符号导出限制
+        python3 << 'PYEOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
+        
         type_def = '''
         typedef int (*tmtk_dsi_set_LFR_t)(void *, unsigned int);
         typedef int (*tmtk_dsi_porch_setting_t)(void *, void *);
@@ -75,41 +51,56 @@ jobs:
         code = code.replace('tmtk_dsi_set_LFR(', '((tmtk_dsi_set_LFR_t)kallsyms_lookup_name("tmtk_dsi_set_LFR"))(')
         code = code.replace('tmtk_dsi_porch_setting(', '((tmtk_dsi_porch_setting_t)kallsyms_lookup_name("tmtk_dsi_porch_setting"))(')
         code = code.replace('#include <linux/module.h>', '#include <linux/module.h>\n' + type_def)
+        
         with open('src/PMB110_185_Mode.c', 'w') as f:
             f.write(code)
         print("Dynamic symbol patching complete.")
-        EOF
+        PYEOF
 
-    - name: Generate Real Module.symvers
+    - name: Generate Real Module.symvers from Kallsyms
       run: |
-        # 用 kallsyms.txt 生成真机符号表
-        python3 << 'EOF'
+        # 根据真机 kallsyms 生成符号 CRC 表，让内核能够接纳模块
+        python3 << 'PYEOF'
         with open('kallsyms.txt', 'r') as f:
             lines = f.readlines()
-        with open('Module.symvers', 'w') as out:
+        with open('kernel_source/Module.symvers', 'w') as out:
             for line in lines:
                 parts = line.strip().split()
                 if len(parts) >= 3 and not parts[2].startswith('_'):
                     out.write(f"0x00000000\t{parts[2]}\tvmlinux\tEXPORT_SYMBOL\n")
         print("Real Module.symvers generated.")
-        EOF
+        PYEOF
+
+    - name: Configure AOSP Kernel
+      run: |
+        cd kernel_source
+        export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        make gki_defconfig
+        # 强制开启模块，关闭签名校验
+        scripts/config --enable MODULES
+        scripts/config --disable MODULE_SIG
+        scripts/config --disable MODULE_SIG_FORCE
+        scripts/config --enable MODULE_FORCE_LOAD
+        make olddefconfig
+        make modules_prepare
+        cd ..
 
     - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        # 强制优先使用真机 kheaders 的头文件
+        # 真机 kheaders 头文件优先级最高
         echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
-        echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
-        echo "ccflags-y += -I$PWD/src" >> src/Makefile
 
-    - name: Configure and Compile using Kheaders
+    - name: Compile LKM
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 使用 kheaders 里的 scripts 和 include 作为编译环境，直接调用 make
-        # 生成一个最小的 .config 强制开启 MODULES
-        cd kheaders
-        make -f $(pwd)/scripts/Makefile.build obj=$PWD/../src modules
-        # 如果 kheaders 没有顶层 Makefile，我们通过 Kbuild 系统直接编译
-        make -C $PWD/kheaders M=$PWD/src KBUILD_EXTRA_SYMBOLS=$PWD/Module.symvers modules
+        make -C kernel_source M=$PWD/src KBUILD_EXTRA_SYMBOLS=$PWD/kernel_source/Module.symvers modules
+
+    - name: Upload Result
+      uses: actions/upload-artifact@v4
+      with:
+        name: rmx5062-lkm
+        path: "**/*.ko"
