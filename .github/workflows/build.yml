@@ -19,7 +19,6 @@ jobs:
 
     - name: Download Real Device Kernel Source
       run: |
-        # 重新拉取真机内核源码
         wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/main.zip -O kernel.zip || \
         wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/master.zip -O kernel.zip
         unzip kernel.zip
@@ -27,10 +26,8 @@ jobs:
 
     - name: Patch Kernel Kconfig (Auto Clean Missing Dirs)
       run: |
-        # 核心修复：自动扫描所有 Kconfig，注释掉指向不存在文件的 source 行
         python3 << 'PYEOF'
         import os, re
-
         for root, dirs, files in os.walk('kernel_source'):
             for file in files:
                 if file == 'Kconfig':
@@ -42,7 +39,6 @@ jobs:
                             match = re.match(r'\s*source\s+"([^"]+)"', line)
                             if match:
                                 rel_path = match.group(1)
-                                # 构建绝对路径
                                 abs_path = os.path.normpath(os.path.join(root, rel_path))
                                 if not os.path.exists(abs_path):
                                     f.write('#' + line)
@@ -55,13 +51,11 @@ jobs:
 
     - name: Patch C Code (Real Device Adapt)
       run: |
-        # 替换面板名、函数名、vermagic
         sed -i 's/panel_aa618_p_3_a0034_dsi_vdo/panel_ae037_p_3_a0026_dsi_vdo/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_set_LFR/tmtk_dsi_set_LFR/g' src/PMB110_185_Mode.c
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
-        # 注入动态查找逻辑
         python3 << 'PYEOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
@@ -77,26 +71,25 @@ jobs:
         print("Dynamic symbol patching complete.")
         PYEOF
 
-    - name: Configure Real Device Kernel
+    - name: Force Enable Modules and Configure Kernel
       run: |
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        # 清理后，gki_defconfig 应该能顺利执行
         make gki_defconfig
-        # 强制开启模块和关闭签名校验
-        scripts/config --enable MODULES
-        scripts/config --disable MODULE_SIG
-        scripts/config --disable MODULE_SIG_FORCE
-        scripts/config --enable MODULE_FORCE_LOAD
+        # 核心修复：直接在 .config 里强制写入 CONFIG_MODULES=y
+        echo "CONFIG_MODULES=y" >> .config
+        sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
+        # 强制执行 olddefconfig，让内核根据依赖关系修正其他配置
         make olddefconfig
+        # 检查是否成功启用了模块
+        grep "CONFIG_MODULES=y" .config || (echo "ERROR: Failed to enable modules!" && exit 1)
         make modules_prepare
         cd ..
 
     - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        # 关键：直接指向真机源码的 include 路径，结构体100%对齐
         echo "ccflags-y += -I$PWD/kernel_source/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kernel_source/arch/arm64/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kernel_source/drivers/gpu/drm/mediatek" >> src/Makefile
