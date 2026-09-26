@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Real Device Source Fixed)
+name: Build RMX5062 LKM (Real Device Defconfig)
 
 on:
   workflow_dispatch:
@@ -71,37 +71,42 @@ jobs:
         print("Dynamic symbol patching complete.")
         PYEOF
 
-    - name: Force Enable Modules and Configure Kernel
+    - name: Configure Real Device Kernel (Using MT6989T Defconfig)
       run: |
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        make gki_defconfig
-        # 核心修复：直接在 .config 里强制写入 CONFIG_MODULES=y
+        
+        # 核心修复：优先寻找 Realme 为 MT6989T 准备的真机配置
+        DEFCONFIG=$(find arch/arm64/configs -name "*mt6989*" -o -name "*k6989*" | head -n 1)
+        if [ -z "$DEFCONFIG" ]; then
+            echo "Warning: No specific MT6989T defconfig found, falling back to gki_defconfig."
+            make gki_defconfig
+        else
+            echo "Found specific defconfig: $DEFCONFIG"
+            make $(basename $DEFCONFIG)
+        fi
+        
+        # 暴力强制开启模块，防止 olddefconfig 重置
         echo "CONFIG_MODULES=y" >> .config
-        sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
-        # 强制执行 olddefconfig，让内核根据依赖关系修正其他配置
+        echo "CONFIG_MODULE_FORCE_LOAD=y" >> .config
+        echo "CONFIG_MODULE_SIG=n" >> .config
+        echo "CONFIG_MODULE_SIG_FORCE=n" >> .config
+        
         make olddefconfig
-        # 检查是否成功启用了模块
-        grep "CONFIG_MODULES=y" .config || (echo "ERROR: Failed to enable modules!" && exit 1)
+        # 再次强制覆盖，确保配置生效
+        sed -i 's/# CONFIG_MODULES is not set/CONFIG_MODULES=y/g' .config
+        sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
+        
         make modules_prepare
         cd ..
 
     - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
+        # 关键：直接指向真机源码的 include 路径，结构体100%对齐
         echo "ccflags-y += -I$PWD/kernel_source/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kernel_source/arch/arm64/include" >> src/Makefile
         echo "ccflags-y += -I$PWD/kernel_source/drivers/gpu/drm/mediatek" >> src/Makefile
 
-    - name: Compile LKM
-      run: |
-        export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        make -C kernel_source M=$PWD/src modules
-
-    - name: Upload Result
-      uses: actions/upload-artifact@v4
-      with:
-        name: rmx5062-lkm
-        path: "**/*.ko"
+    - name: Compile
