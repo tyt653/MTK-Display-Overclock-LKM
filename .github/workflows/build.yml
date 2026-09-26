@@ -1,4 +1,4 @@
-name: Build RMX5062 LKM (Logical Separation)
+name: Build RMX5062 LKM (Real Device Source)
 
 on:
   workflow_dispatch:
@@ -17,17 +17,16 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
         sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libelf-dev xz-utils
 
-    - name: Download AOSP Common Kernel (Build Framework)
+    - name: Download Real Device Kernel Source
       run: |
-        wget https://github.com/aosp-mirror/kernel_common/archive/refs/heads/android14-6.1.zip -O kernel.zip
+        # 核心：拉取真我 Neo7 Turbo 的官方内核源码
+        # 注意：不同仓库的默认分支可能是 main 或 master，这里统一尝试
+        wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/main.zip -O kernel.zip || \
+        wget https://github.com/realme-kernel-opensource/realme_neo7_turbo-AndroidV-kernel-source/archive/refs/heads/master.zip -O kernel.zip
         unzip kernel.zip
-        mv kernel_common-android14-6.1 kernel_source
-
-    - name: Extract Real Kheaders (No Override!)
-      run: |
-        # 仅解压到独立目录，绝对不覆盖 AOSP 的 include
-        mkdir -p kheaders
-        tar -xJf kheaders.tar.xz -C kheaders
+        mv realme_neo7_turbo-AndroidV-kernel-source-* kernel_source
+        echo "=== 源码树根目录结构 ==="
+        ls -la kernel_source/
 
     - name: Patch C Code (Real Device Adapt)
       run: |
@@ -37,11 +36,10 @@ jobs:
         sed -i 's/mtk_dsi_porch_setting/tmtk_dsi_porch_setting/g' src/PMB110_185_Mode.c
         sed -i 's/6.12.58-android16-6-g7704a1ae279b-ab15213644-4k/6.1.115-android14-11-o-gc5f8983c0f24/g' src/PMB110_185_Mode.c
         
-        # 注入动态查找逻辑，绕过符号导出限制
+        # 注入动态查找逻辑，避免未导出符号报错
         python3 << 'PYEOF'
         with open('src/PMB110_185_Mode.c', 'r') as f:
             code = f.read()
-        
         type_def = '''
         typedef int (*tmtk_dsi_set_LFR_t)(void *, unsigned int);
         typedef int (*tmtk_dsi_porch_setting_t)(void *, void *);
@@ -49,32 +47,19 @@ jobs:
         code = code.replace('tmtk_dsi_set_LFR(', '((tmtk_dsi_set_LFR_t)kallsyms_lookup_name("tmtk_dsi_set_LFR"))(')
         code = code.replace('tmtk_dsi_porch_setting(', '((tmtk_dsi_porch_setting_t)kallsyms_lookup_name("tmtk_dsi_porch_setting"))(')
         code = code.replace('#include <linux/module.h>', '#include <linux/module.h>\n' + type_def)
-        
         with open('src/PMB110_185_Mode.c', 'w') as f:
             f.write(code)
         print("Dynamic symbol patching complete.")
         PYEOF
 
-    - name: Generate Real Module.symvers from Kallsyms
-      run: |
-        # 根据真机 kallsyms 生成符号 CRC 表
-        python3 << 'PYEOF'
-        with open('kallsyms.txt', 'r') as f:
-            lines = f.readlines()
-        with open('kernel_source/Module.symvers', 'w') as out:
-            for line in lines:
-                parts = line.strip().split()
-                if len(parts) >= 3 and not parts[2].startswith('_'):
-                    out.write(f"0x00000000\t{parts[2]}\tvmlinux\tEXPORT_SYMBOL\n")
-        print("Real Module.symvers generated.")
-        PYEOF
-
-    - name: Configure AOSP Kernel
+    - name: Configure Real Device Kernel
       run: |
         cd kernel_source
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
+        # 由于该源码树可能不包含完整的 defconfig，我们尝试使用通用的 gki_defconfig
         make gki_defconfig
+        # 强制启用模块编译
         scripts/config --enable MODULES
         scripts/config --disable MODULE_SIG
         scripts/config --disable MODULE_SIG_FORCE
@@ -83,20 +68,19 @@ jobs:
         make modules_prepare
         cd ..
 
-    - name: Create Makefile for LKM (Priority Path!)
+    - name: Create Makefile for LKM
       run: |
         echo "obj-m += PMB110_185_Mode.o" > src/Makefile
-        # 核心修正：在编译时，将真机 kheaders 的头文件路径放在最前面！
-        # 这样编译 C 代码时优先使用真机结构体，但绝不破坏 AOSP 构建系统。
-        echo "ccflags-y += -I$PWD/kheaders/include" >> src/Makefile
-        echo "ccflags-y += -I$PWD/kheaders/arch/arm64/include" >> src/Makefile
-        echo "ccflags-y += -I$PWD/kheaders/include/uapi" >> src/Makefile
+        # 关键：指向真机源码树的 include 路径
+        echo "ccflags-y += -I$PWD/kernel_source/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kernel_source/arch/arm64/include" >> src/Makefile
+        echo "ccflags-y += -I$PWD/kernel_source/drivers/gpu/drm/mediatek" >> src/Makefile
 
     - name: Compile LKM
       run: |
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
-        make -C kernel_source M=$PWD/src KBUILD_EXTRA_SYMBOLS=$PWD/kernel_source/Module.symvers modules
+        make -C kernel_source M=$PWD/src modules
 
     - name: Upload Result
       uses: actions/upload-artifact@v4
