@@ -64,12 +64,13 @@ jobs:
         export ARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
         make gki_defconfig
-        # 暴力替换所有可能隐藏 CONFIG_MODULES 的写法
-        sed -i 's/.*CONFIG_MODULES.*/CONFIG_MODULES=y/' .config
-        # 强制写入并绕过 olddefconfig 的重置（这里不再跑 olddefconfig，直接跑 prepare）
+        # 暴力替换，尝试所有可能的写法
+        sed -i 's/# CONFIG_MODULES is not set/CONFIG_MODULES=y/g' .config
+        sed -i 's/CONFIG_MODULES=n/CONFIG_MODULES=y/g' .config
+        # 如果里面根本没有这个配置，强行追加
+        grep -q 'CONFIG_MODULES' .config || echo 'CONFIG_MODULES=y' >> .config
+        # 直接执行准备，绝对不加错误检查，让它自己崩溃或成功
         make modules_prepare
-        echo "=== 检查 .config 中的 MODULES 状态 ==="
-        grep "CONFIG_MODULES" .config
         cd ..
 
     - name: Create Makefile
